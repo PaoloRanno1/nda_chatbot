@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 # File: app.py
-# File: app.py
 import streamlit as st
 import os
 from nda_chatbot import NDADocumentChatbot
@@ -9,7 +8,7 @@ from typing import Dict, Any
 
 # Configure Streamlit page
 st.set_page_config(
-    page_title="Strada NDA Analysis Assistant",
+    page_title="NDA Analysis Assistant",
     page_icon="📄",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -96,7 +95,22 @@ def main():
     # Initialize session state
     initialize_session_state()
     
-    # Header
+    # Company Logo and Header
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        # Option 1: If you have a logo file in your repo
+        try:
+            st.image("assets/logo.png", width=200)  # Adjust width as needed
+        except:
+            # Option 2: Fallback to text-based logo if image not found
+            st.markdown("""
+            <div style="text-align: center; padding: 1rem;">
+                <h2 style="color: #1f77b4; margin: 0;">📄 Your Company</h2>
+                <p style="color: #666; margin: 0; font-size: 0.9rem;">Legal Document Analysis</p>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    # Main header
     st.markdown('<h1 class="main-header">📄 NDA Analysis Assistant</h1>', unsafe_allow_html=True)
     st.markdown("Upload an NDA document and chat with AI to get comprehensive analysis and answers to your questions.")
     
@@ -321,17 +335,20 @@ def main():
     else:
         st.info("👆 Please upload an NDA document to start chatting!")
     
-    # Footer
+    # Footer with logo option
     st.markdown("---")
-    st.markdown(
-        """
-        <div style='text-align: center; color: #666;'>
-            Made with ❤️ using Streamlit and LangChain | 
-            <a href='https://github.com/yourusername/nda-chatbot' target='_blank'>GitHub</a>
-        </div>
-        """, 
-        unsafe_allow_html=True
-    )
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown(
+            """
+            <div style='text-align: center; color: #666;'>
+                Made with ❤️ by <strong>Your Company Name</strong><br>
+                <small>Using Streamlit and LangChain</small><br>
+                <a href='https://github.com/yourusername/nda-chatbot' target='_blank' style='color: #1f77b4;'>GitHub Repository</a>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
 
 if __name__ == "__main__":
     main()
