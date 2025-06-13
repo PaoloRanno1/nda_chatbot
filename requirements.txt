@@ -1,4 +1,4 @@
-﻿streamlitAdd commentMore actions
+﻿streamlit
 langchain
 langchain-community
 langchain-openai
