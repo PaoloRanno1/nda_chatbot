@@ -7,10 +7,6 @@ import streamlit as st
 import os
 import dotenv
 import uuid
-if os.name == 'posix':
-    __import__('pysqlite3')
-    import sys
-    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 from nda_chatbot import NDADocumentChatbot
 import tempfile
 from typing import Dict, Any
