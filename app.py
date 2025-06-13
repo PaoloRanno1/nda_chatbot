@@ -9,7 +9,7 @@ from typing import Dict, Any
 
 # Configure Streamlit page
 st.set_page_config(
-    page_title="NDA Analysis Assistant",
+    page_title="Strada NDA Analysis Assistant",
     page_icon="📄",
     layout="wide",
     initial_sidebar_state="expanded"
