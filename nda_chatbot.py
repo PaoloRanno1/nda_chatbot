@@ -207,7 +207,7 @@ Answer:"""
         try:
             qa_chain = self.setup_rag_chain()
             if qa_chain is None:
-            def get_nda_stats(self) -> Dict[str, Any]:"answer": "❌ No NDA document loaded for Q&A"}
+                return {"answer": "❌ No NDA document loaded for Q&A"}
             
             result = qa_chain({"query": question})
             return {
@@ -224,6 +224,22 @@ Answer:"""
             return intent if intent in ["SUMMARIZE", "QUESTION", "GENERAL"] else "QUESTION"
         except:
             return "QUESTION"  # Default to question if classification fails
+
+    def get_conversation_context(self, max_exchanges: int = 3) -> str:
+        """Get recent conversation context for better responses"""
+        history = self.get_conversation_history()
+        if not history:
+            return ""
+        
+        # Get last few exchanges for context
+        recent_history = history[-max_exchanges:] if len(history) > max_exchanges else history
+        
+        context_parts = []
+        for i, exchange in enumerate(recent_history):
+            context_parts.append(f"User: {exchange['user']}")
+            context_parts.append(f"Assistant: {exchange['assistant'][:200]}{'...' if len(exchange['assistant']) > 200 else ''}")
+        
+        return "\n".join(context_parts)
 
     def chat_with_nda(self, user_message: str) -> Dict[str, Any]:
         """Main chat interface for NDA analysis with enhanced memory"""
@@ -307,21 +323,7 @@ Respond naturally and helpfully:"""
             "sources": sources
         }
 
-    def get_conversation_context(self, max_exchanges: int = 3) -> str:
-        """Get recent conversation context for better responses"""
-        history = self.get_conversation_history()
-        if not history:
-            return ""
-        
-        # Get last few exchanges for context
-        recent_history = history[-max_exchanges:] if len(history) > max_exchanges else history
-        
-        context_parts = []
-        for i, exchange in enumerate(recent_history):
-            context_parts.append(f"User: {exchange['user']}")
-            context_parts.append(f"Assistant: {exchange['assistant'][:200]}{'...' if len(exchange['assistant']) > 200 else ''}")
-        
-        return "\n".join(context_parts)
+    def get_conversation_history(self) -> List[Dict[str, str]]:
         """Get formatted conversation history"""
         history = []
         messages = self.memory.chat_memory.messages
@@ -336,11 +338,6 @@ Respond naturally and helpfully:"""
                 })
         
         return history
-
-    def get_conversation_history(self) -> List[Dict[str, str]]:
-        """Clear memory function"""
-        self.memory.clear()
-        print("🗑️ Chat history cleared")
 
     def clear_memory(self):
         """Clear memory function"""
@@ -358,6 +355,8 @@ Respond naturally and helpfully:"""
             "memory_limit": self.memory.k * 2,  # k exchanges = k*2 messages
             "memory_usage_percent": (memory_messages / (self.memory.k * 2)) * 100 if self.memory.k > 0 else 0
         }
+
+    def get_nda_stats(self) -> Dict[str, Any]:
         """Get NDA document statistics"""
         if not self.documents:
             return {"error": "No NDA loaded"}
