@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # File: nda_chatbot.py
+# -*- coding: utf-8 -*-
 # File: nda_chatbot.py
 import os
 import warnings
@@ -15,6 +16,7 @@ from langchain.chains import RetrievalQA
 from langchain.memory import ConversationBufferWindowMemory
 from langchain.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
+from langchain.schema import Document
 from typing import Dict, Any, List
 
 class NDADocumentChatbot:
@@ -110,33 +112,53 @@ Document: {text}'''
             return False
 
     def setup_summarization_chain(self, chain_type: str = "stuff"):
-        """Setup the summarization chain using load_summarize_chain"""
-        # Always use PromptTemplate for consistency
-        prompt = PromptTemplate(
-            template=self.nda_prompt,
-            input_variables=["text"]
-        )
+        """Setup the summarization chain using load_summarize_chain with fixed map_reduce"""
         
         if chain_type == "stuff":
+            # For stuff chain, use single prompt
+            prompt = PromptTemplate(
+                template=self.nda_prompt,
+                input_variables=["text"]
+            )
+            
             return load_summarize_chain(
                 llm=self.llm,
                 chain_type="stuff",
                 prompt=prompt
             )
-        else:  # map_reduce
-            # Create separate prompts for map and reduce phases
+        
+        else:  # map_reduce - Fixed version
+            # Map prompt - simpler format for individual chunks
             map_prompt = PromptTemplate(
-                template="""Analyze this section of an NDA document. Focus on identifying key legal provisions, party obligations, important dates, and any unusual clauses.
+                template="""Analyze this section of an NDA document. Focus on identifying:
+- Key legal provisions and clauses
+- Party obligations and rights
+- Important dates, terms, and conditions
+- Any unusual or notable clauses
 
 Document section:
 {text}
 
-Section analysis:""",
+Key findings from this section:""",
                 input_variables=["text"]
             )
             
+            # Combine prompt - comprehensive analysis using the original detailed prompt
             combine_prompt = PromptTemplate(
-                template="""You are a legal assistant AI. Combine the following section analyses into a comprehensive NDA summary covering: parties involved, confidentiality obligations, terms, duration, governing law, and special clauses.
+                template="""You are a legal assistant AI with expertise in M&A transactions. Based on the following analyses of different sections of an NDA document, provide a comprehensive summary covering:
+
+1. **Parties Involved:** Identify the disclosing and receiving parties
+2. **Purpose of Disclosure:** Why confidential information is being exchanged  
+3. **Definition of Confidential Information:** How it's defined and any exclusions
+4. **Obligations of the Receiving Party:** What they can/cannot do
+5. **Permitted Disclosures:** Who can receive the information
+6. **Term & Duration:** When it takes effect and how long obligations last
+7. **Return or Destruction of Info:** What happens to materials afterward
+8. **Remedies / Legal Recourse:** Penalties for breaching the NDA
+9. **Jurisdiction & Governing Law:** Which laws govern the agreement
+10. **Special Clauses:** Any non-standard provisions like non-solicitation, standstill, exclusivity
+
+Use clear bullet points and flag any ambiguous language with "[REQUIRES LEGAL REVIEW]" or unusual clauses with "[UNUSUAL CLAUSE]".
 
 Section analyses:
 {text}
@@ -164,8 +186,8 @@ Comprehensive NDA Analysis:""",
         
         print(f"📊 Document analysis: {word_count:,} words, ~{estimated_tokens:.0f} tokens")
         
-        # Use map_reduce for documents over ~4000 tokens to avoid context limits
-        if estimated_tokens > 4000:
+        # Use map_reduce for documents over ~8000 tokens to be more conservative
+        if estimated_tokens > 8000:
             print(f"📋 Large document detected - using map_reduce strategy")
             return "map_reduce"
         else:
@@ -181,13 +203,8 @@ Comprehensive NDA Analysis:""",
             # Determine best chain to use based on document size
             chain_type = self.determine_chain_strategy()
             
-            # For very large documents, use manual chunking approach instead of map_reduce
-            if chain_type == "map_reduce":
-                return self.analyze_large_nda_manual()
-            
-            # For smaller documents, use stuff strategy
             print(f"🔍 Setting up {chain_type} strategy...")
-            summarize_chain = self.setup_summarization_chain(chain_type="stuff")
+            summarize_chain = self.setup_summarization_chain(chain_type=chain_type)
             
             print(f"🔍 Analyzing NDA using {chain_type} strategy...")
             summary = summarize_chain.run(self.documents)
@@ -195,14 +212,14 @@ Comprehensive NDA Analysis:""",
             return summary
             
         except Exception as e:
-            print(f"❌ Error in standard analysis: {str(e)}")
+            print(f"❌ Error in {chain_type} analysis: {str(e)}")
             # Fallback to manual chunking for any error
             return self.analyze_large_nda_manual()
 
     def analyze_large_nda_manual(self) -> str:
-        """Manual analysis for large NDAs to avoid map_reduce issues"""
+        """Manual analysis for large NDAs as fallback"""
         try:
-            print("🔍 Using manual chunking approach for large NDA...")
+            print("🔍 Using manual chunking approach as fallback...")
             
             # Combine all documents into single text
             full_text = "\n\n".join([doc.page_content for doc in self.documents])
