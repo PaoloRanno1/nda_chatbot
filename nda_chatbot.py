@@ -16,6 +16,8 @@ from langchain.memory import ConversationBufferWindowMemory
 from langchain.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from typing import Dict, Any, List
+from langchain.prompts import ChatPromptTemplate   # NEW – use chat prompts
+from langchain.schema import Document              # NEW – used in manual fallback
 
 class NDADocumentChatbot:
     def __init__(self, openai_api_key: str, model_name: str = 'gpt-4o'):
@@ -112,45 +114,37 @@ Document: {text}'''
     def setup_summarization_chain(self, chain_type: str = "stuff"):
         """Setup the summarization chain using load_summarize_chain"""
         # Always use PromptTemplate for consistency
-        prompt = PromptTemplate(
-            template=self.nda_prompt,
-            input_variables=["text"]
-        )
+        base_prompt = ChatPromptTemplate.from_template(self.nda_prompt)
         
         if chain_type == "stuff":
             return load_summarize_chain(
                 llm=self.llm,
                 chain_type="stuff",
-                prompt=prompt
+                prompt=base_prompt           
             )
-        else:  # map_reduce
-            # Create separate prompts for map and reduce phases
-            map_prompt = PromptTemplate(
-                template="""Analyze this section of an NDA document. Focus on identifying key legal provisions, party obligations, important dates, and any unusual clauses.
+        map_prompt = ChatPromptTemplate.from_template(
+        """Analyse this section of an NDA. Focus on key legal provisions,
+        party obligations, important dates, and unusual clauses.
 
-Document section:
-{text}
+        {text}
 
-Section analysis:""",
-                input_variables=["text"]
-            )
-            
-            combine_prompt = PromptTemplate(
-                template="""You are a legal assistant AI. Combine the following section analyses into a comprehensive NDA summary covering: parties involved, confidentiality obligations, terms, duration, governing law, and special clauses.
+        Section analysis:"""
+    )
+        reduce_prompt = ChatPromptTemplate.from_template(   # <- was combine_prompt
+        """You are a legal assistant AI. Combine the analyses below into a single,
+        comprehensive NDA summary covering: parties involved, confidentiality
+        obligations, term, governing law and special clauses.
 
-Section analyses:
-{text}
+        {text}
 
-Comprehensive NDA Analysis:""",
-                input_variables=["text"]
-            )
-            
-            return load_summarize_chain(
-                llm=self.llm,
-                chain_type="map_reduce",
-                map_prompt=map_prompt,
-                combine_prompt=combine_prompt
-            )
+        Comprehensive NDA summary:"""
+    )
+        return load_summarize_chain(
+        llm=self.llm,
+        chain_type="map_reduce",
+        map_prompt=map_prompt,
+        reduce_prompt=reduce_prompt      # <- rename fixes the error
+    )
 
     def determine_chain_strategy(self) -> str:
         """Determine whether to use 'stuff' or 'map_reduce' based on document size"""
