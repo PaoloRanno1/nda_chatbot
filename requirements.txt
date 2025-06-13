@@ -2,6 +2,7 @@ streamlit
 langchain
 langchain-community
 langchain-openai
+pysqlite3-binary==0.5.2      # modern SQLite 3.45 bundled
 pypdf
 chromadb
 openai
@@ -10,3 +11,4 @@ typing-extensions
 python-dotenv
 protobuf==3.20.3          # pin to keep Map-Reduce quick actions working
 pysqlite3-binary==0.5.2      # ships SQLite 3.45, satisfies Chroma
+
