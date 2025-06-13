@@ -1,9 +1,6 @@
 # -*- coding: utf-8 -*-
 # File: app.py
 # File: app.py
-import sys
-__import__("pysqlite3")             # import the wheel
-sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
 import streamlit as st
 import os
 from nda_chatbot import NDADocumentChatbot
