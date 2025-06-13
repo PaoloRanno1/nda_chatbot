@@ -3,6 +3,10 @@
 # File: app.py
 import streamlit as st
 import os
+import streamlit as st
+import os
+import dotenv
+import uuid
 if os.name == 'posix':
     __import__('pysqlite3')
     import sys
