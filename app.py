@@ -111,7 +111,7 @@ def main():
             """, unsafe_allow_html=True)
     
     # Main header
-    st.markdown('<h1 class="main-header">📄 NDA Analysis Assistant</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header"> Strada NDA Analysis Assistant</h1>', unsafe_allow_html=True)
     st.markdown("Upload an NDA document and chat with AI to get comprehensive analysis and answers to your questions.")
     
     # Sidebar configuration
