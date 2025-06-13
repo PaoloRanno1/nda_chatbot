@@ -2,7 +2,7 @@ streamlit
 langchain
 langchain-community
 langchain-openai
-pysqlite3-binary==0.5.2      # modern SQLite 3.45 bundled
+     # modern SQLite 3.45 bundled
 pypdf
 chromadb
 openai
