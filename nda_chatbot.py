@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
 # File: nda_chatbot.py
+# -*- coding: utf-8 -*-
 # File: nda_chatbot.py
 import os
 import warnings
-warnings.filterwarnings('ignore')
+from typing import Dict, Any, List
+
+warnings.filterwarnings("ignore")
 
 from langchain.document_loaders import PyPDFLoader
 from langchain.vectorstores import Chroma
@@ -15,472 +18,412 @@ from langchain.chains import RetrievalQA
 from langchain.memory import ConversationBufferWindowMemory
 from langchain.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from typing import Dict, Any, List
-from langchain.prompts import ChatPromptTemplate   # NEW – use chat prompts
-from langchain.schema import Document              # NEW – used in manual fallback
+from langchain.schema import Document
+
 
 class NDADocumentChatbot:
-    def __init__(self, openai_api_key: str, model_name: str = 'gpt-4o'):
-        """Initialize the NDA chatbot"""
+    """End-to-end assistant for loading, analysing and chatting about NDA PDFs."""
+
+    # ------------------------------------------------------------------ #
+    # 1. INITIALISATION
+    # ------------------------------------------------------------------ #
+    def __init__(self, openai_api_key: str, model_name: str = "gpt-4o") -> None:
         self.llm = ChatOpenAI(
             openai_api_key=openai_api_key,
             model_name=model_name,
-            temperature=0.2
+            temperature=0.2,
         )
         self.embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
         self.vectorstore = None
         self.documents = None
         self.pdf_path = None
-        self.chat_history = []
-        
-        # Initialize conversation memory
+
+        # Conversation memory (last 10 exchanges)
         self.memory = ConversationBufferWindowMemory(
-            k=10,  # Keep last 10 exchanges
-            return_messages=True,
-            memory_key="chat_history"
+            k=10, return_messages=True, memory_key="chat_history"
         )
-        
-        # NDA analysis prompt
-        self.nda_prompt = '''You are a legal assistant AI with expertise in M&A transactions. The user has uploaded a Non-Disclosure Agreement (NDA) related to a potential merger or acquisition. Your task is to extract and summarize the most relevant clauses and information for internal due diligence.
 
-Please analyze the document thoroughly and return a **bullet-point summary** covering the following:
+        # NDA analysis master prompt
+        self.nda_prompt = """You are a legal assistant AI with expertise in M&A transactions. The user
+has uploaded a Non-Disclosure Agreement (NDA) related to a potential merger or
+acquisition. Extract and summarise the most relevant clauses and information for
+internal due diligence.
 
-1. **Parties Involved:** Identify the disclosing and receiving parties (entities or individuals).
-2. **Purpose of Disclosure:** Explain why confidential information is being exchanged (e.g. due diligence for a potential M&A deal).
-3. **Definition of Confidential Information:** How is it defined in the document? Are there exclusions?
-4. **Obligations of the Receiving Party:** Summarize what the receiving party is allowed or not allowed to do with the information.
-5. **Permitted Disclosures:** Who (if anyone) can the receiving party share the information with (e.g. affiliates, advisors)?
-6. **Term & Duration:** When does the NDA take effect and how long do confidentiality obligations last?
-7. **Return or Destruction of Info:** What happens to confidential materials at the end of the relationship or deal?
-8. **Remedies / Legal Recourse:** Are there any penalties or legal consequences for breaching the NDA?
-9. **Jurisdiction & Governing Law:** Which jurisdiction and laws govern the agreement?
-10. **Special Clauses (if any):** Flag any non-standard clauses such as:
-    - Non-solicitation
-    - Standstill agreements
-    - Exclusivity
+Return a • **bullet-point summary** covering:
 
-### Important Notes:
-- If any section is not clearly defined or missing, explicitly state "Not specified" or "Standard provisions apply"
-- Flag any ambiguous language that may need legal review with "[REQUIRES LEGAL REVIEW]"
-- Highlight any unusual or potentially problematic clauses with "[UNUSUAL CLAUSE]"
+1. **Parties Involved** – disclosing and receiving parties
+2. **Purpose of Disclosure**
+3. **Definition of Confidential Information** (plus exclusions)
+4. **Obligations of the Receiving Party**
+5. **Permitted Disclosures** (affiliates, advisers…)
+6. **Term & Duration**
+7. **Return / Destruction of Information**
+8. **Remedies / Legal Recourse**
+9. **Jurisdiction & Governing Law**
+10. **Special Clauses** (non-solicitation, standstill, exclusivity, …)
 
-### Output Format:
-- Use **clear bullet points**
-- Keep it concise, accurate, and well-structured
-- Include a short note at the top summarizing the overall intent and duration of the NDA
+Important:
+* If something is missing, say **“Not specified”**.
+* Flag ambiguous language with **[REQUIRES LEGAL REVIEW]**.
+* Flag unusual clauses with **[UNUSUAL CLAUSE]**.
 
-Document: {text}'''
+### Output
+* Use clear bullet points.
+* Keep it concise, accurate, and well-structured.
+* Start with a one-sentence note summarising the NDA’s overall intent and term.
 
-        # Intent classifier
-        self.intent_classifier = ChatPromptTemplate.from_messages([
-            ("system", """You are an intent classifier for an NDA analysis chatbot.
-            Classify the user's message into one of these categories:
+Document:
+{text}"""  # the summarisation chains inject {text}
 
-            1. SUMMARIZE - User wants a summary of the NDA or specific sections
-            2. QUESTION - User is asking specific questions about the NDA content
-            3. GENERAL - General conversation or greetings
+        # Intent classifier pipeline
+        self.intent_classifier = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    """You are an intent classifier for an NDA analysis chatbot.
+Classify the user's message into **exactly one** of:
 
-            Examples for NDA context:
-            - "Summarize this NDA" → SUMMARIZE
-            - "Give me an analysis of this agreement" → SUMMARIZE
-            - "What are the confidentiality obligations?" → QUESTION
-            - "Who are the parties involved?" → QUESTION
-            - "What is the governing law?" → QUESTION
-            - "Hello" → GENERAL
+1. SUMMARIZE – user wants a summary of the NDA
+2. QUESTION  – user asks something about the NDA’s content
+3. GENERAL   – greetings, small-talk, meta-questions
 
-            Respond with only one word: SUMMARIZE, QUESTION, or GENERAL"""),
-            ("user", "{user_message}")
-        ])
-        
+Respond with one word: SUMMARIZE, QUESTION or GENERAL.""",
+                ),
+                ("user", "{user_message}"),
+            ]
+        )
         self.intent_chain = self.intent_classifier | self.llm | StrOutputParser()
 
-    def is_initialized(self):
-        """Check if the chatbot is initialized"""
-        return hasattr(self, 'llm') and hasattr(self, 'chat_history')
-
+    # ------------------------------------------------------------------ #
+    # 2. DOCUMENT HANDLING
+    # ------------------------------------------------------------------ #
     def load_nda_document(self, pdf_path: str) -> bool:
-        """Load NDA PDF document"""
+        """Load a PDF NDA into memory."""
         try:
             print(f"Loading NDA document: {pdf_path}")
             loader = PyPDFLoader(pdf_path)
             self.documents = loader.load()
             self.pdf_path = pdf_path
-            print(f"✅ NDA loaded successfully! ({len(self.documents)} pages)")
+            print(f"✅ NDA loaded successfully ({len(self.documents)} pages)")
             return True
         except Exception as e:
-            print(f"❌ Error loading NDA: {str(e)}")
+            print(f"❌ Error loading NDA: {e}")
             return False
 
+    # ------------------------------------------------------------------ #
+    # 3. SUMMARISATION CHAINS
+    # ------------------------------------------------------------------ #
     def setup_summarization_chain(self, chain_type: str = "stuff"):
-        """Setup the summarization chain using load_summarize_chain"""
-        # Always use PromptTemplate for consistency
+        """Create a LangChain summarisation chain compatible with v0.1.15+."""
         base_prompt = ChatPromptTemplate.from_template(self.nda_prompt)
-        
+
         if chain_type == "stuff":
+            # One-shot ("stuff") summarisation
             return load_summarize_chain(
                 llm=self.llm,
                 chain_type="stuff",
-                prompt=base_prompt           
+                prompt=base_prompt,
             )
+
+        # ---------- map-reduce prompts ----------
         map_prompt = ChatPromptTemplate.from_template(
-        """Analyse this section of an NDA. Focus on key legal provisions,
-        party obligations, important dates, and unusual clauses.
+            """Analyse this section of the NDA. Focus on key legal provisions,
+party obligations, dates, and unusual clauses.
 
-        {text}
+{text}
 
-        Section analysis:"""
-    )
-        reduce_prompt = ChatPromptTemplate.from_template(   # <- was combine_prompt
-        """You are a legal assistant AI. Combine the analyses below into a single,
-        comprehensive NDA summary covering: parties involved, confidentiality
-        obligations, term, governing law and special clauses.
+Section analysis:"""
+        )
 
-        {text}
+        reduce_prompt = ChatPromptTemplate.from_template(
+            """You are a legal assistant AI. Combine the section analyses below
+into a single, comprehensive NDA summary covering: parties, confidentiality
+obligations, term, governing law, and special clauses.
 
-        Comprehensive NDA summary:"""
-    )
+{text}
+
+Comprehensive NDA summary:"""
+        )
+
         return load_summarize_chain(
-        llm=self.llm,
-        chain_type="map_reduce",
-        map_prompt=map_prompt,
-        reduce_prompt=reduce_prompt      # <- rename fixes the error
-    )
+            llm=self.llm,
+            chain_type="map_reduce",
+            map_prompt=map_prompt,
+            reduce_prompt=reduce_prompt,  # <- crucial name
+        )
 
     def determine_chain_strategy(self) -> str:
-        """Determine whether to use 'stuff' or 'map_reduce' based on document size"""
+        """Pick 'stuff' or 'map_reduce' based on rough token count."""
         if not self.documents:
             return "stuff"
 
-        # Calculate total tokens (rough estimate)
-        total_text = "\n".join([doc.page_content for doc in self.documents])
+        total_text = "\n".join(doc.page_content for doc in self.documents)
         word_count = len(total_text.split())
-        estimated_tokens = word_count * 1.3
-        
-        print(f"📊 Document analysis: {word_count:,} words, ~{estimated_tokens:.0f} tokens")
-        
-        # Use map_reduce for documents over ~4000 tokens to avoid context limits
-        if estimated_tokens > 4000:
-            print(f"📋 Large document detected - using map_reduce strategy")
+        est_tokens = int(word_count * 1.3)
+
+        print(f"📊 Document: {word_count:,} words, ~{est_tokens:,} tokens")
+
+        if est_tokens > 4_000:
+            print("📋 Large document detected – using map_reduce strategy")
             return "map_reduce"
-        else:
-            print(f"📋 Standard document size - using stuff strategy")
-            return "stuff"
+        print("📋 Standard document size – using stuff strategy")
+        return "stuff"
 
     def analyze_nda_comprehensive(self) -> str:
-        """Comprehensive NDA analysis using load_summarize_chain"""
+        """High-level NDA analysis. Falls back to manual chunking if needed."""
         if not self.documents:
             return "❌ No NDA document loaded"
-        
+
         try:
-            # Determine best chain to use based on document size
             chain_type = self.determine_chain_strategy()
-            
-            # For very large documents, use manual chunking approach instead of map_reduce
+
+            # Very large files → manual chunk routine
             if chain_type == "map_reduce":
                 return self.analyze_large_nda_manual()
-            
-            # For smaller documents, use stuff strategy
-            print(f"🔍 Setting up {chain_type} strategy...")
-            summarize_chain = self.setup_summarization_chain(chain_type="stuff")
-            
-            print(f"🔍 Analyzing NDA using {chain_type} strategy...")
+
+            # Smaller files → normal summarisation
+            print(f"🔍 Setting up {chain_type} strategy")
+            summarize_chain = self.setup_summarization_chain(chain_type=chain_type)
+
+            print(f"🔍 Analysing NDA with {chain_type} strategy")
             summary = summarize_chain.run(self.documents)
-            print("✅ NDA analysis completed!")
+            print("✅ NDA analysis completed")
             return summary
-            
+
         except Exception as e:
-            print(f"❌ Error in standard analysis: {str(e)}")
-            # Fallback to manual chunking for any error
+            print(f"❌ Error in standard analysis: {e}")
             return self.analyze_large_nda_manual()
 
+    # ------------------------------------------------------------------ #
+    # 4. MANUAL CHUNK FALLBACK (for huge NDAs)
+    # ------------------------------------------------------------------ #
     def analyze_large_nda_manual(self) -> str:
-        """Manual analysis for large NDAs to avoid map_reduce issues"""
+        """Chunk-by-chunk analysis to avoid context-window limits."""
         try:
-            print("🔍 Using manual chunking approach for large NDA...")
-            
-            # Combine all documents into single text
-            full_text = "\n\n".join([doc.page_content for doc in self.documents])
-            
-            # Split into manageable chunks
+            print("🔍 Using manual chunking approach for large NDA")
+
+            full_text = "\n\n".join(doc.page_content for doc in self.documents)
             text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=3000,  # Smaller chunks
+                chunk_size=3_000,
                 chunk_overlap=300,
-                separators=["\n\n", "\n", ". ", " "]
+                separators=["\n\n", "\n", ". ", " "],
             )
-            
-            # Create temporary documents for chunking
+
             temp_doc = Document(page_content=full_text)
             chunks = text_splitter.split_documents([temp_doc])
-            
             print(f"📄 Split document into {len(chunks)} chunks")
-            
-            # Analyze each chunk
-            chunk_analyses = []
-            for i, chunk in enumerate(chunks):
-                print(f"🔍 Analyzing chunk {i+1}/{len(chunks)}...")
-                
-                # Simple prompt for chunk analysis
-                chunk_prompt = f"""Analyze this section of an NDA document. Identify key legal provisions, parties, obligations, terms, and any important clauses.
+
+            analyses = []
+            for idx, chunk in enumerate(chunks, 1):
+                print(f"🔍 Analysing chunk {idx}/{len(chunks)}")
+                chunk_prompt = f"""Analyse this NDA section. Identify key
+provisions, parties, obligations, terms and important clauses.
 
 Document section:
 {chunk.page_content}
 
 Analysis:"""
-                
-                response = self.llm.invoke(chunk_prompt)
-                chunk_analyses.append(f"Chunk {i+1} Analysis: {response.content}")
-            
-            # Combine all chunk analyses
-            combined_analysis = "\n\n".join(chunk_analyses)
-            
-            # Generate final comprehensive summary
-            final_prompt = f"""You are a legal assistant AI. Based on the following analyses of different sections of an NDA, provide a comprehensive summary following this structure:
+                analyses.append(f"Chunk {idx}: {self.llm.invoke(chunk_prompt).content}")
 
-1. **Parties Involved:** Identify the disclosing and receiving parties
-2. **Purpose of Disclosure:** Why confidential information is being exchanged  
-3. **Definition of Confidential Information:** How it's defined and any exclusions
-4. **Obligations of the Receiving Party:** What they can/cannot do
-5. **Permitted Disclosures:** Who can receive the information
-6. **Term & Duration:** When it takes effect and how long obligations last
-7. **Return or Destruction of Info:** What happens to materials afterward
-8. **Remedies / Legal Recourse:** Penalties for breaching the NDA
-9. **Jurisdiction & Governing Law:** Which laws govern the agreement
-10. **Special Clauses:** Any non-standard provisions like non-solicitation, standstill, exclusivity
+            combined = "\n\n".join(analyses)
+            final_prompt = f"""You are a legal assistant AI. Based on the
+following analyses, produce a comprehensive NDA summary following the bullet
+structure in the main prompt.
 
 Section analyses:
-{combined_analysis}
+{combined}
 
-Comprehensive NDA Analysis:"""
-            
+Comprehensive NDA summary:"""
+
             final_response = self.llm.invoke(final_prompt)
-            print("✅ Manual analysis completed!")
+            print("✅ Manual analysis completed")
             return final_response.content
-            
-        except Exception as e:
-            return f"❌ Error in manual analysis: {str(e)}"
 
+        except Exception as e:
+            return f"❌ Error in manual analysis: {e}"
+
+    # ------------------------------------------------------------------ #
+    # 5. RETRIEVAL-AUGMENTED QA (RAG)
+    # ------------------------------------------------------------------ #
     def setup_rag_chain(self):
-        """Setup RAG chain for NDA Q&A"""
+        """Prepare a retriever-QA chain for question answering."""
         if not self.documents:
             return None
-            
-        # Split documents into chunks for better retrieval
+
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200,
-            separators=["\n\n", "\n", " ", ""]
+            chunk_size=1_000, chunk_overlap=200, separators=["\n\n", "\n", " ", ""]
         )
         chunks = text_splitter.split_documents(self.documents)
 
-        # Create vectorstore
         self.vectorstore = Chroma.from_documents(
             chunks,
             embedding=self.embeddings,
-            persist_directory="./nda_chroma_db"
+            persist_directory="./nda_chroma_db",
         )
-        
-        # NDA-specific Q&A prompt
-        qa_prompt_template = """Use the following pieces of the NDA document to answer the question at the end.
-Focus on providing accurate information about confidentiality obligations, parties involved, terms, and legal provisions.
 
-If you don't know the answer based on the NDA content, just say that the information is not specified in this NDA.
+        qa_prompt = PromptTemplate(
+            template="""Use these NDA excerpts to answer the question. Focus on
+confidentiality obligations, parties, terms, and legal provisions.
 
-NDA Context:
+If the answer is not in the NDA, say so.
+
+NDA context:
 {context}
 
 Question: {question}
 
-Answer:"""
-        
-        qa_prompt = PromptTemplate(
-            template=qa_prompt_template,
-            input_variables=["context", "question"]
+Answer:""",
+            input_variables=["context", "question"],
         )
-        
-        # Create retrieval QA chain
-        qa_chain = RetrievalQA.from_chain_type(
+
+        return RetrievalQA.from_chain_type(
             llm=self.llm,
             chain_type="stuff",
             retriever=self.vectorstore.as_retriever(search_kwargs={"k": 4}),
             chain_type_kwargs={"prompt": qa_prompt},
-            return_source_documents=True
+            return_source_documents=True,
         )
-        
-        return qa_chain
 
     def ask_nda_question(self, question: str) -> Dict[str, Any]:
-        """Answer questions about the NDA using RAG"""
+        """Answer a question about the NDA via RAG."""
+        qa_chain = self.setup_rag_chain()
+        if qa_chain is None:
+            return {"answer": "❌ No NDA loaded for Q&A"}
+
         try:
-            qa_chain = self.setup_rag_chain()
-            if qa_chain is None:
-                return {"answer": "❌ No NDA document loaded for Q&A"}
-            
             result = qa_chain({"query": question})
             return {
                 "answer": result["result"],
-                "source_documents": result["source_documents"]
+                "source_documents": result["source_documents"],
             }
         except Exception as e:
-            return {"answer": f"❌ Error answering question: {str(e)}"}
+            return {"answer": f"❌ Error answering question: {e}"}
 
+    # ------------------------------------------------------------------ #
+    # 6. CONVERSATION & MEMORY
+    # ------------------------------------------------------------------ #
     def classify_intent(self, user_message: str) -> str:
-        """Classify user intent"""
+        """SUMMARIZE / QUESTION / GENERAL."""
         try:
-            intent = self.intent_chain.invoke({"user_message": user_message}).strip().upper()
-            return intent if intent in ["SUMMARIZE", "QUESTION", "GENERAL"] else "QUESTION"
-        except:
-            return "QUESTION"  # Default to question if classification fails
+            intent = (
+                self.intent_chain.invoke({"user_message": user_message}).strip().upper()
+            )
+            return intent if intent in {"SUMMARIZE", "QUESTION", "GENERAL"} else "QUESTION"
+        except Exception:
+            return "QUESTION"
+
+    def get_conversation_history(self) -> List[Dict[str, str]]:
+        """Return formatted conversation history."""
+        history = []
+        msgs = self.memory.chat_memory.messages
+        for i in range(0, len(msgs), 2):
+            if i + 1 < len(msgs):
+                history.append(
+                    {"user": msgs[i].content, "assistant": msgs[i + 1].content}
+                )
+        return history
 
     def get_conversation_context(self, max_exchanges: int = 3) -> str:
-        """Get recent conversation context for better responses"""
-        history = self.get_conversation_history()
-        if not history:
-            return ""
-        
-        # Get last few exchanges for context
-        recent_history = history[-max_exchanges:] if len(history) > max_exchanges else history
-        
-        context_parts = []
-        for i, exchange in enumerate(recent_history):
-            context_parts.append(f"User: {exchange['user']}")
-            context_parts.append(f"Assistant: {exchange['assistant'][:200]}{'...' if len(exchange['assistant']) > 200 else ''}")
-        
-        return "\n".join(context_parts)
+        """Last few exchanges as plain text for context injection."""
+        history = self.get_conversation_history()[-max_exchanges:]
+        lines = []
+        for h in history:
+            lines.append(f"User: {h['user']}")
+            lines.append(
+                f"Assistant: {h['assistant'][:200]}"
+                + ("…" if len(h["assistant"]) > 200 else "")
+            )
+        return "\n".join(lines)
 
     def chat_with_nda(self, user_message: str) -> Dict[str, Any]:
-        """Main chat interface for NDA analysis with enhanced memory"""
+        """Main public interface: chat, remembering context."""
         if not self.documents:
             return {
-                "response": "❌ Please load an NDA document first using load_nda_document(pdf_path)",
+                "response": "❌ Please load an NDA first (load_nda_document)",
                 "intent": "ERROR",
-                "sources": []
+                "sources": [],
             }
-        
+
         print(f"💬 User: {user_message}")
-        
-        # Classify user intent
+
         intent = self.classify_intent(user_message)
         print(f"🎯 Intent: {intent}")
-        
-        # Get conversation context for better responses
-        conversation_context = self.get_conversation_context()
-        
+
+        context = self.get_conversation_context()
+
         if intent == "SUMMARIZE":
-            # Summarize the NDA
-            print("📋 Generating NDA analysis...")
-            analysis = self.analyze_nda_comprehensive()
-            response = f"📄 **NDA ANALYSIS:**\n\n{analysis}"
+            print("📋 Generating NDA analysis")
+            response_text = self.analyze_nda_comprehensive()
             sources = []
-            
+
         elif intent == "QUESTION":
-            # Answer questions about the NDA with conversation context
-            print("❓ Searching NDA for answer...")
-            
-            # Enhanced question with context for better answers
-            if conversation_context:
-                contextual_question = f"""Previous conversation context:
-{conversation_context}
-
-Current question: {user_message}
-
-Please answer the current question while considering the conversation history for better context."""
-                qa_result = self.ask_nda_question(contextual_question)
+            print("❓ Searching NDA for answer")
+            if context:
+                question_with_ctx = (
+                    f"Previous context:\n{context}\n\n"
+                    f"Current question: {user_message}\n"
+                    "Answer considering the conversation history."
+                )
+                result = self.ask_nda_question(question_with_ctx)
             else:
-                qa_result = self.ask_nda_question(user_message)
-                
-            response = qa_result["answer"]
-            sources = qa_result.get("source_documents", [])
-            
+                result = self.ask_nda_question(user_message)
+            response_text = result["answer"]
+            sources = result.get("source_documents", [])
+
         else:  # GENERAL
-            # General conversation with memory context
-            print("💬 Handling general conversation...")
-            general_prompt = f"""You are an NDA analysis assistant. The user has loaded an NDA document and is having a conversation with you.
+            print("💬 Handling general conversation")
+            general_prompt = f"""You are an NDA analysis assistant having a
+conversation with a user who has loaded an NDA.
 
-{f"Previous conversation context: {conversation_context}" if conversation_context else ""}
-
-You should be helpful, professional, and friendly. You can:
-- Greet users and explain your capabilities
-- Answer questions about NDAs in general
-- Provide guidance on what kinds of analysis you can perform
-- Have natural conversations while staying focused on your role as an NDA assistant
-- Reference previous parts of the conversation when relevant
-
-Current conversation context: The user has an NDA document loaded and ready for analysis.
+{f"Conversation context:\n{context}" if context else ""}
 
 User message: {user_message}
 
-Respond naturally and helpfully:"""
-            
-            response = self.llm.invoke(general_prompt).content
+Respond naturally, professionally, and helpfully:"""
+            response_text = self.llm.invoke(general_prompt).content
             sources = []
-        
-        # Store conversation in memory
+
+        # Add to memory
         self.memory.chat_memory.add_user_message(user_message)
-        self.memory.chat_memory.add_ai_message(response)
-        
-        # Response preview logging
-        print(f"🤖 Assistant: {response[:200]}{'...' if len(response) > 200 else ''}")
+        self.memory.chat_memory.add_ai_message(response_text)
+
+        print(f"🤖 Assistant: {response_text[:200]}{'…' if len(response_text) > 200 else ''}")
         if sources:
-            print(f"📚 Found {len(sources)} relevant document sections")
-        
-        return {
-            "response": response,
-            "intent": intent,
-            "sources": sources
-        }
+            print(f"📚 Returned {len(sources)} source sections")
 
-    def get_conversation_history(self) -> List[Dict[str, str]]:
-        """Get formatted conversation history"""
-        history = []
-        messages = self.memory.chat_memory.messages
-        
-        for i in range(0, len(messages), 2):
-            if i + 1 < len(messages):
-                human_msg = messages[i]
-                ai_msg = messages[i + 1]
-                history.append({
-                    "user": human_msg.content,
-                    "assistant": ai_msg.content
-                })
-        
-        return history
+        return {"response": response_text, "intent": intent, "sources": sources}
 
-    def clear_memory(self):
-        """Clear memory function"""
+    def clear_memory(self) -> None:
         self.memory.clear()
         print("🗑️ Chat history cleared")
 
+    # ------------------------------------------------------------------ #
+    # 7. STATS & UTILITIES
+    # ------------------------------------------------------------------ #
     def get_memory_stats(self) -> Dict[str, Any]:
-        """Get statistics about the current memory state"""
-        history = self.get_conversation_history()
-        memory_messages = len(self.memory.chat_memory.messages)
-        
+        total_msgs = len(self.memory.chat_memory.messages)
         return {
-            "total_exchanges": len(history),
-            "memory_messages": memory_messages,
-            "memory_limit": self.memory.k * 2,  # k exchanges = k*2 messages
-            "memory_usage_percent": (memory_messages / (self.memory.k * 2)) * 100 if self.memory.k > 0 else 0
+            "total_exchanges": total_msgs // 2,
+            "memory_messages": total_msgs,
+            "memory_limit": self.memory.k * 2,
+            "memory_usage_percent": (total_msgs / (self.memory.k * 2)) * 100
+            if self.memory.k
+            else 0,
         }
 
     def get_nda_stats(self) -> Dict[str, Any]:
-        """Get NDA document statistics"""
         if not self.documents:
             return {"error": "No NDA loaded"}
-        
-        total_text = "\n".join([doc.page_content for doc in self.documents])
-        word_count = len(total_text.split())
-        char_count = len(total_text)
-        page_count = len(self.documents)
 
-        # Estimate reading time (average 200 WPM)
-        reading_time_minutes = word_count / 200
-        reading_time = f"{int(reading_time_minutes)}m" if reading_time_minutes < 60 else f"{int(reading_time_minutes // 60)}h {int(reading_time_minutes % 60)}m"
+        full_text = "\n".join(doc.page_content for doc in self.documents)
+        words = len(full_text.split())
+        pages = len(self.documents)
+        reading_time = words / 200  # 200 WPM
 
         return {
             "file_path": self.pdf_path,
-            "pages": page_count,
-            "words": word_count,
-            "characters": char_count,
-            "reading_time": reading_time,
-            "estimated_tokens": word_count * 1.3  # Rough estimate
+            "pages": pages,
+            "words": words,
+            "reading_time": f"{reading_time:.1f} min",
+            "estimated_tokens": int(words * 1.3),
         }
