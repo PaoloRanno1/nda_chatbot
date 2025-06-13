@@ -1,1 +1,10 @@
-
+streamlit
+langchain
+langchain-community
+langchain-openai
+pypdf
+chromadb
+openai
+pydantic
+typing-extensions
+python-dotenv
