@@ -105,7 +105,7 @@ def main():
             # Option 2: Fallback to text-based logo if image not found
             st.markdown("""
             <div style="text-align: center; padding: 1rem;">
-                <h2 style="color: #1f77b4; margin: 0;">📄 Your Company</h2>
+                <h2 style="color: #1f77b4; margin: 0;">📄 Strada Partners</h2>
                 <p style="color: #666; margin: 0; font-size: 0.9rem;">Legal Document Analysis</p>
             </div>
             """, unsafe_allow_html=True)
