@@ -8,3 +8,4 @@ openai
 pydantic
 typing-extensions
 python-dotenv
+protobuf==3.20.3          # pin to keep Map-Reduce quick actions working
