@@ -102,16 +102,20 @@ def main():
         try:
             st.image("assets/logo.png", width=200)  # Adjust width as needed
         except:
-            # Option 2: Fallback to text-based logo if image not found
-            st.markdown("""
-            <div style="text-align: center; padding: 1rem;">
-                <h2 style="color: #1f77b4; margin: 0;">📄 Strada Partners</h2>
-                <p style="color: #666; margin: 0; font-size: 0.9rem;">Legal Document Analysis</p>
-            </div>
-            """, unsafe_allow_html=True)
+            # Option 2: Try URL-based logo (replace with your actual logo URL)
+            try:
+                st.image("https://your-website.com/strada-partners-logo.png", width=200)
+            except:
+                # Option 3: Fallback to text-based logo if image not found
+                st.markdown("""
+                <div style="text-align: center; padding: 1rem;">
+                    <h2 style="color: #1f77b4; margin: 0;">📄 Strada Partners</h2>
+                    <p style="color: #666; margin: 0; font-size: 0.9rem;">Legal Document Analysis</p>
+                </div>
+                """, unsafe_allow_html=True)
     
     # Main header
-    st.markdown('<h1 class="main-header"> Strada NDA Analysis Assistant</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">📄 Strada NDA Analysis Assistant</h1>', unsafe_allow_html=True)
     st.markdown("Upload an NDA document and chat with AI to get comprehensive analysis and answers to your questions.")
     
     # Sidebar configuration
@@ -245,17 +249,11 @@ def main():
                 if i < len(st.session_state.chat_history) - 1:
                     st.markdown("<hr style='margin: 0.5rem 0; border: 1px solid #e0e0e0;'>", unsafe_allow_html=True)
         
-        # Chat input
-        col1, col2 = st.columns([4, 1])
-        with col1:
-            user_input = st.text_input(
-                "Ask a question about the NDA:",
-                placeholder="e.g., 'Who are the parties involved?' or 'Analyze this NDA comprehensively'",
-                key="chat_input_field"
-            )
-        
-        with col2:
-            send_button = st.button("💬 Send", use_container_width=True, type="primary", key="send_btn")
+        # Chat input with Enter key support
+        user_input = st.chat_input(
+            "Ask a question about the NDA...",
+            key="chat_input_field"
+        )
         
         # Quick action buttons
         st.subheader("🚀 Quick Actions")
@@ -264,25 +262,21 @@ def main():
         with col1:
             if st.button("📋 Full Analysis", use_container_width=True, key="btn_analysis"):
                 user_input = "Analyze this NDA comprehensively"
-                send_button = True
         
         with col2:
             if st.button("👥 Parties", use_container_width=True, key="btn_parties"):
                 user_input = "Who are the parties involved in this NDA?"
-                send_button = True
         
         with col3:
             if st.button("🔒 Obligations", use_container_width=True, key="btn_obligations"):
                 user_input = "What are the confidentiality obligations?"
-                send_button = True
         
         with col4:
             if st.button("⏰ Duration", use_container_width=True, key="btn_duration"):
                 user_input = "How long does this NDA last?"
-                send_button = True
         
-        # Process user input
-        if send_button and user_input:
+        # Process user input (from chat_input or quick action buttons)
+        if user_input:
             with st.spinner("🤔 Analyzing..."):
                 try:
                     # Get response from chatbot
