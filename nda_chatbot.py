@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # File: nda_chatbot.py
+# File: nda_chatbot.py
 import os
 import warnings
 warnings.filterwarnings('ignore')
@@ -110,57 +111,37 @@ Document: {text}'''
 
     def setup_summarization_chain(self, chain_type: str = "stuff"):
         """Setup the summarization chain using load_summarize_chain"""
+        # Always use PromptTemplate for consistency
+        prompt = PromptTemplate(
+            template=self.nda_prompt,
+            input_variables=["text"]
+        )
+        
         if chain_type == "stuff":
-            # For stuff strategy, we can use ChatPromptTemplate
-            prompt = ChatPromptTemplate.from_template(self.nda_prompt)
             return load_summarize_chain(
                 llm=self.llm,
-                chain_type=chain_type,
+                chain_type="stuff",
                 prompt=prompt
             )
-        elif chain_type == "map_reduce":
-            # For map_reduce strategy, we need regular PromptTemplate objects
-            
-            # Map prompt - analyzes individual chunks
-            map_template = """You are a legal assistant AI with expertise in M&A transactions. Analyze this section of an NDA document.
-
-Focus on identifying:
-- Key legal provisions and terms
-- Party obligations and rights  
-- Important dates, conditions, and clauses
-- Any unusual or non-standard provisions
+        else:  # map_reduce
+            # Create separate prompts for map and reduce phases
+            map_prompt = PromptTemplate(
+                template="""Analyze this section of an NDA document. Focus on identifying key legal provisions, party obligations, important dates, and any unusual clauses.
 
 Document section:
 {text}
 
-Provide a detailed analysis of this section:"""
-
-            map_prompt = PromptTemplate(
-                template=map_template,
+Section analysis:""",
                 input_variables=["text"]
             )
             
-            # Combine prompt - combines all section analyses
-            combine_template = """You are a legal assistant AI. You have received analyses of different sections of an NDA document. Combine these into a comprehensive NDA analysis following this structure:
+            combine_prompt = PromptTemplate(
+                template="""You are a legal assistant AI. Combine the following section analyses into a comprehensive NDA summary covering: parties involved, confidentiality obligations, terms, duration, governing law, and special clauses.
 
-1. **Parties Involved:** Identify the disclosing and receiving parties
-2. **Purpose of Disclosure:** Why confidential information is being exchanged
-3. **Definition of Confidential Information:** How it's defined and any exclusions
-4. **Obligations of the Receiving Party:** What they can/cannot do
-5. **Permitted Disclosures:** Who can receive the information
-6. **Term & Duration:** When it takes effect and how long obligations last
-7. **Return or Destruction of Info:** What happens to materials afterward
-8. **Remedies / Legal Recourse:** Penalties for breaching the NDA
-9. **Jurisdiction & Governing Law:** Which laws govern the agreement
-10. **Special Clauses:** Any non-standard provisions
-
-Section analyses to combine:
+Section analyses:
 {text}
 
-Provide a comprehensive structured NDA analysis:"""
-            
-            combine_prompt = PromptTemplate(
-                template=combine_template,
+Comprehensive NDA Analysis:""",
                 input_variables=["text"]
             )
             
@@ -169,14 +150,6 @@ Provide a comprehensive structured NDA analysis:"""
                 chain_type="map_reduce",
                 map_prompt=map_prompt,
                 combine_prompt=combine_prompt
-            )
-        else:
-            # Fallback to stuff strategy
-            prompt = ChatPromptTemplate.from_template(self.nda_prompt)
-            return load_summarize_chain(
-                llm=self.llm,
-                chain_type="stuff",
-                prompt=prompt
             )
 
     def determine_chain_strategy(self) -> str:
@@ -208,34 +181,89 @@ Provide a comprehensive structured NDA analysis:"""
             # Determine best chain to use based on document size
             chain_type = self.determine_chain_strategy()
             
-            # Setup summarization chain
+            # For very large documents, use manual chunking approach instead of map_reduce
+            if chain_type == "map_reduce":
+                return self.analyze_large_nda_manual()
+            
+            # For smaller documents, use stuff strategy
             print(f"🔍 Setting up {chain_type} strategy...")
-            summarize_chain = self.setup_summarization_chain(chain_type=chain_type)
+            summarize_chain = self.setup_summarization_chain(chain_type="stuff")
             
             print(f"🔍 Analyzing NDA using {chain_type} strategy...")
-            
-            # Run the summarization
-            if chain_type == "map_reduce":
-                # For map_reduce, we need to be more explicit about the input
-                summary = summarize_chain.run(self.documents)
-            else:
-                # For stuff strategy
-                summary = summarize_chain.run(self.documents)
-                
+            summary = summarize_chain.run(self.documents)
             print("✅ NDA analysis completed!")
             return summary
             
         except Exception as e:
-            print(f"❌ Detailed error: {str(e)}")
-            # Fallback to stuff strategy if map_reduce fails
-            try:
-                print("🔄 Attempting fallback to stuff strategy...")
-                fallback_chain = self.setup_summarization_chain(chain_type="stuff")
-                summary = fallback_chain.run(self.documents)
-                print("✅ Fallback analysis completed!")
-                return summary
-            except Exception as fallback_error:
-                return f"❌ Error analyzing NDA: {str(fallback_error)}"
+            print(f"❌ Error in standard analysis: {str(e)}")
+            # Fallback to manual chunking for any error
+            return self.analyze_large_nda_manual()
+
+    def analyze_large_nda_manual(self) -> str:
+        """Manual analysis for large NDAs to avoid map_reduce issues"""
+        try:
+            print("🔍 Using manual chunking approach for large NDA...")
+            
+            # Combine all documents into single text
+            full_text = "\n\n".join([doc.page_content for doc in self.documents])
+            
+            # Split into manageable chunks
+            text_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=3000,  # Smaller chunks
+                chunk_overlap=300,
+                separators=["\n\n", "\n", ". ", " "]
+            )
+            
+            # Create temporary documents for chunking
+            temp_doc = Document(page_content=full_text)
+            chunks = text_splitter.split_documents([temp_doc])
+            
+            print(f"📄 Split document into {len(chunks)} chunks")
+            
+            # Analyze each chunk
+            chunk_analyses = []
+            for i, chunk in enumerate(chunks):
+                print(f"🔍 Analyzing chunk {i+1}/{len(chunks)}...")
+                
+                # Simple prompt for chunk analysis
+                chunk_prompt = f"""Analyze this section of an NDA document. Identify key legal provisions, parties, obligations, terms, and any important clauses.
+
+Document section:
+{chunk.page_content}
+
+Analysis:"""
+                
+                response = self.llm.invoke(chunk_prompt)
+                chunk_analyses.append(f"Chunk {i+1} Analysis: {response.content}")
+            
+            # Combine all chunk analyses
+            combined_analysis = "\n\n".join(chunk_analyses)
+            
+            # Generate final comprehensive summary
+            final_prompt = f"""You are a legal assistant AI. Based on the following analyses of different sections of an NDA, provide a comprehensive summary following this structure:
+
+1. **Parties Involved:** Identify the disclosing and receiving parties
+2. **Purpose of Disclosure:** Why confidential information is being exchanged  
+3. **Definition of Confidential Information:** How it's defined and any exclusions
+4. **Obligations of the Receiving Party:** What they can/cannot do
+5. **Permitted Disclosures:** Who can receive the information
+6. **Term & Duration:** When it takes effect and how long obligations last
+7. **Return or Destruction of Info:** What happens to materials afterward
+8. **Remedies / Legal Recourse:** Penalties for breaching the NDA
+9. **Jurisdiction & Governing Law:** Which laws govern the agreement
+10. **Special Clauses:** Any non-standard provisions like non-solicitation, standstill, exclusivity
+
+Section analyses:
+{combined_analysis}
+
+Comprehensive NDA Analysis:"""
+            
+            final_response = self.llm.invoke(final_prompt)
+            print("✅ Manual analysis completed!")
+            return final_response.content
+            
+        except Exception as e:
+            return f"❌ Error in manual analysis: {str(e)}"
 
     def setup_rag_chain(self):
         """Setup RAG chain for NDA Q&A"""
