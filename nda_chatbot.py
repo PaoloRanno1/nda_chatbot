@@ -118,30 +118,65 @@ Document: {text}'''
                 chain_type=chain_type,
                 prompt=prompt
             )
-        else:
-            # For map_reduce strategy, we need PromptTemplate
+        elif chain_type == "map_reduce":
+            # For map_reduce strategy, we need regular PromptTemplate objects
+            
+            # Map prompt - analyzes individual chunks
+            map_template = """You are a legal assistant AI with expertise in M&A transactions. Analyze this section of an NDA document.
+
+Focus on identifying:
+- Key legal provisions and terms
+- Party obligations and rights  
+- Important dates, conditions, and clauses
+- Any unusual or non-standard provisions
+
+Document section:
+{text}
+
+Provide a detailed analysis of this section:"""
+
             map_prompt = PromptTemplate(
-                template=self.nda_prompt,
+                template=map_template,
                 input_variables=["text"]
             )
             
-            # Create a combine prompt for the reduce step
-            combine_prompt_text = """You are a legal assistant AI. Combine the following section summaries into a comprehensive NDA analysis:
+            # Combine prompt - combines all section analyses
+            combine_template = """You are a legal assistant AI. You have received analyses of different sections of an NDA document. Combine these into a comprehensive NDA analysis following this structure:
 
+1. **Parties Involved:** Identify the disclosing and receiving parties
+2. **Purpose of Disclosure:** Why confidential information is being exchanged
+3. **Definition of Confidential Information:** How it's defined and any exclusions
+4. **Obligations of the Receiving Party:** What they can/cannot do
+5. **Permitted Disclosures:** Who can receive the information
+6. **Term & Duration:** When it takes effect and how long obligations last
+7. **Return or Destruction of Info:** What happens to materials afterward
+8. **Remedies / Legal Recourse:** Penalties for breaching the NDA
+9. **Jurisdiction & Governing Law:** Which laws govern the agreement
+10. **Special Clauses:** Any non-standard provisions
+
+Section analyses to combine:
 {text}
 
-Provide a final structured analysis covering all key NDA components with clear bullet points."""
+Provide a comprehensive structured NDA analysis:"""
             
             combine_prompt = PromptTemplate(
-                template=combine_prompt_text,
+                template=combine_template,
                 input_variables=["text"]
             )
             
             return load_summarize_chain(
                 llm=self.llm,
-                chain_type=chain_type,
+                chain_type="map_reduce",
                 map_prompt=map_prompt,
                 combine_prompt=combine_prompt
+            )
+        else:
+            # Fallback to stuff strategy
+            prompt = ChatPromptTemplate.from_template(self.nda_prompt)
+            return load_summarize_chain(
+                llm=self.llm,
+                chain_type="stuff",
+                prompt=prompt
             )
 
     def determine_chain_strategy(self) -> str:
@@ -174,16 +209,33 @@ Provide a final structured analysis covering all key NDA components with clear b
             chain_type = self.determine_chain_strategy()
             
             # Setup summarization chain
+            print(f"🔍 Setting up {chain_type} strategy...")
             summarize_chain = self.setup_summarization_chain(chain_type=chain_type)
+            
             print(f"🔍 Analyzing NDA using {chain_type} strategy...")
             
             # Run the summarization
-            summary = summarize_chain.run(self.documents)
+            if chain_type == "map_reduce":
+                # For map_reduce, we need to be more explicit about the input
+                summary = summarize_chain.run(self.documents)
+            else:
+                # For stuff strategy
+                summary = summarize_chain.run(self.documents)
+                
             print("✅ NDA analysis completed!")
             return summary
             
         except Exception as e:
-            return f"❌ Error analyzing NDA: {str(e)}"
+            print(f"❌ Detailed error: {str(e)}")
+            # Fallback to stuff strategy if map_reduce fails
+            try:
+                print("🔄 Attempting fallback to stuff strategy...")
+                fallback_chain = self.setup_summarization_chain(chain_type="stuff")
+                summary = fallback_chain.run(self.documents)
+                print("✅ Fallback analysis completed!")
+                return summary
+            except Exception as fallback_error:
+                return f"❌ Error analyzing NDA: {str(fallback_error)}"
 
     def setup_rag_chain(self):
         """Setup RAG chain for NDA Q&A"""
