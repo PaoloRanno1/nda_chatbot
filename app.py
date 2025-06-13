@@ -107,6 +107,7 @@ def main():
         api_key = st.text_input(
             "OpenAI API Key",
             type="password",
+            key="openai_api_key",
             help="Enter your OpenAI API key to enable the chatbot"
         )
         
@@ -234,7 +235,7 @@ def main():
             user_input = st.text_input(
                 "Ask a question about the NDA:",
                 placeholder="e.g., 'Who are the parties involved?' or 'Analyze this NDA comprehensively'",
-                key="chat_input"
+                key="chat_input_field"
             )
         
         with col2:
@@ -245,22 +246,22 @@ def main():
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            if st.button("📋 Full Analysis", use_container_width=True):
+            if st.button("📋 Full Analysis", use_container_width=True, key="btn_analysis"):
                 user_input = "Analyze this NDA comprehensively"
                 send_button = True
         
         with col2:
-            if st.button("👥 Parties", use_container_width=True):
+            if st.button("👥 Parties", use_container_width=True, key="btn_parties"):
                 user_input = "Who are the parties involved in this NDA?"
                 send_button = True
         
         with col3:
-            if st.button("🔒 Obligations", use_container_width=True):
+            if st.button("🔒 Obligations", use_container_width=True, key="btn_obligations"):
                 user_input = "What are the confidentiality obligations?"
                 send_button = True
         
         with col4:
-            if st.button("⏰ Duration", use_container_width=True):
+            if st.button("⏰ Duration", use_container_width=True, key="btn_duration"):
                 user_input = "How long does this NDA last?"
                 send_button = True
         
@@ -330,7 +331,5 @@ def main():
         unsafe_allow_html=True
     )
 
-if __name__ == "__main__":
-    main()
 if __name__ == "__main__":
     main()
