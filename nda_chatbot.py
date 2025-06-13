@@ -110,11 +110,39 @@ Document: {text}'''
 
     def setup_summarization_chain(self, chain_type: str = "stuff"):
         """Setup the summarization chain using load_summarize_chain"""
-        return load_summarize_chain(
-            llm=self.llm,
-            chain_type=chain_type,
-            prompt=ChatPromptTemplate.from_template(self.nda_prompt)
-        )
+        if chain_type == "stuff":
+            # For stuff strategy, we can use ChatPromptTemplate
+            prompt = ChatPromptTemplate.from_template(self.nda_prompt)
+            return load_summarize_chain(
+                llm=self.llm,
+                chain_type=chain_type,
+                prompt=prompt
+            )
+        else:
+            # For map_reduce strategy, we need PromptTemplate
+            map_prompt = PromptTemplate(
+                template=self.nda_prompt,
+                input_variables=["text"]
+            )
+            
+            # Create a combine prompt for the reduce step
+            combine_prompt_text = """You are a legal assistant AI. Combine the following section summaries into a comprehensive NDA analysis:
+
+{text}
+
+Provide a final structured analysis covering all key NDA components with clear bullet points."""
+            
+            combine_prompt = PromptTemplate(
+                template=combine_prompt_text,
+                input_variables=["text"]
+            )
+            
+            return load_summarize_chain(
+                llm=self.llm,
+                chain_type=chain_type,
+                map_prompt=map_prompt,
+                combine_prompt=combine_prompt
+            )
 
     def determine_chain_strategy(self) -> str:
         """Determine whether to use 'stuff' or 'map_reduce' based on document size"""
@@ -126,10 +154,14 @@ Document: {text}'''
         word_count = len(total_text.split())
         estimated_tokens = word_count * 1.3
         
-        # Use map_reduce for documents over ~3000 tokens to avoid context limits
-        if estimated_tokens > 3000:
+        print(f"📊 Document analysis: {word_count:,} words, ~{estimated_tokens:.0f} tokens")
+        
+        # Use map_reduce for documents over ~4000 tokens to avoid context limits
+        if estimated_tokens > 4000:
+            print(f"📋 Large document detected - using map_reduce strategy")
             return "map_reduce"
         else:
+            print(f"📋 Standard document size - using stuff strategy")
             return "stuff"
 
     def analyze_nda_comprehensive(self) -> str:
