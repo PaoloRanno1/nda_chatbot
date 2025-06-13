@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # File: app.py
+# File: app.py
 import streamlit as st
 import os
 from nda_chatbot import NDADocumentChatbot
@@ -156,10 +157,18 @@ def main():
                 st.success("Chat history cleared!")
                 st.rerun()
             
-            # Show conversation count
+            # Show conversation count and memory stats
             if hasattr(st.session_state.chatbot, 'memory'):
                 history = st.session_state.chatbot.get_conversation_history()
+                memory_stats = st.session_state.chatbot.get_memory_stats()
+                
                 st.info(f"📊 Conversations: {len(history)}")
+                st.info(f"💭 Memory: {memory_stats['memory_messages']}/{memory_stats['memory_limit']} messages")
+                
+                # Show memory usage bar
+                if memory_stats['memory_usage_percent'] > 0:
+                    st.progress(memory_stats['memory_usage_percent'] / 100, 
+                              text=f"Memory Usage: {memory_stats['memory_usage_percent']:.0f}%")
         
         st.markdown("---")
         
@@ -332,7 +341,17 @@ def main():
     # Footer with logo option
     st.markdown("---")
     col1, col2, col3 = st.columns([1, 2, 1])
-    
+    with col2:
+        st.markdown(
+            """
+            <div style='text-align: center; color: #666;'>
+                Made with ❤️ by <strong>Your Company Name</strong><br>
+                <small>Using Streamlit and LangChain</small><br>
+                <a href='https://github.com/yourusername/nda-chatbot' target='_blank' style='color: #1f77b4;'>GitHub Repository</a>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
 
 if __name__ == "__main__":
     main()
