@@ -342,7 +342,7 @@ def main():
         st.markdown(
             """
             <div style='text-align: center; color: #666;'>
-                Made with ❤️ by <strong>Your Company Name</strong><br>
+                
                 <small>Using Streamlit and LangChain</small><br>
                 <a href='https://github.com/yourusername/nda-chatbot' target='_blank' style='color: #1f77b4;'>GitHub Repository</a>
             </div>
