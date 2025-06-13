@@ -338,17 +338,7 @@ def main():
     # Footer with logo option
     st.markdown("---")
     col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.markdown(
-            """
-            <div style='text-align: center; color: #666;'>
-                
-                <small>Using Streamlit and LangChain</small><br>
-                <a href='https://github.com/yourusername/nda-chatbot' target='_blank' style='color: #1f77b4;'>GitHub Repository</a>
-            </div>
-            """, 
-            unsafe_allow_html=True
-        )
+    
 
 if __name__ == "__main__":
     main()
