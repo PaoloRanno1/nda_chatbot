@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # File: app.py
+# File: app.py
 import streamlit as st
 import os
 from nda_chatbot import NDADocumentChatbot
@@ -131,7 +132,7 @@ def main():
         if st.session_state.chatbot:
             st.subheader("💭 Memory Management")
             
-            if st.button("🗑️ Clear Chat History", use_container_width=True):
+            if st.button("🗑️ Clear Chat History", use_container_width=True, key="clear_memory_btn"):
                 st.session_state.chatbot.clear_memory()
                 st.session_state.chat_history = []
                 st.success("Chat history cleared!")
@@ -213,18 +214,19 @@ def main():
             
             # Create a container with better styling
             for i, exchange in enumerate(st.session_state.chat_history):
-                st.markdown(f"""
-                <div class="chat-history-container">
-                    <div class="chat-message user-message">
-                        <strong style="color: #1565c0;">You:</strong><br>
-                        <span style="color: #1976d2;">{exchange['user']}</span>
+                with st.expander(f"💬 Conversation {i+1}: {exchange['user'][:50]}{'...' if len(exchange['user']) > 50 else ''}", expanded=False):
+                    st.markdown(f"""
+                    <div class="chat-history-container">
+                        <div class="chat-message user-message">
+                            <strong style="color: #1565c0;">You:</strong><br>
+                            <span style="color: #1976d2;">{exchange['user']}</span>
+                        </div>
+                        <div class="chat-message assistant-message">
+                            <strong style="color: #2e7d32;">Assistant:</strong><br>
+                            <span style="color: #388e3c;">{exchange['assistant']}</span>
+                        </div>
                     </div>
-                    <div class="chat-message assistant-message">
-                        <strong style="color: #2e7d32;">Assistant:</strong><br>
-                        <span style="color: #388e3c;">{exchange['assistant'][:300]}{'...' if len(exchange['assistant']) > 300 else ''}</span>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+                    """, unsafe_allow_html=True)
                 
                 if i < len(st.session_state.chat_history) - 1:
                     st.markdown("<hr style='margin: 0.5rem 0; border: 1px solid #e0e0e0;'>", unsafe_allow_html=True)
@@ -239,7 +241,7 @@ def main():
             )
         
         with col2:
-            send_button = st.button("💬 Send", use_container_width=True, type="primary")
+            send_button = st.button("💬 Send", use_container_width=True, type="primary", key="send_btn")
         
         # Quick action buttons
         st.subheader("🚀 Quick Actions")
@@ -272,8 +274,8 @@ def main():
                     # Get response from chatbot
                     result = st.session_state.chatbot.chat_with_nda(user_input)
                     
-                    # Display new messages
-                    st.subheader("💬 Current Conversation")
+                    # Display new messages  
+                    st.subheader("💬 Latest Response")
                     
                     # User message
                     st.markdown(f"""
@@ -282,12 +284,12 @@ def main():
                             <strong style="color: #1565c0;">You:</strong><br>
                             <span style="color: #1976d2;">{user_input}</span>
                         </div>
-                        <div class="chat-message assistant-message">
-                            <strong style="color: #2e7d32;">Assistant:</strong><br>
-                            <span style="color: #388e3c;">{result["response"]}</span>
-                        </div>
                     </div>
                     """, unsafe_allow_html=True)
+                    
+                    # Assistant response with proper markdown rendering
+                    st.markdown("**🤖 Assistant:**")
+                    st.markdown(result["response"])
                     
                     # Show intent and sources info
                     col1, col2 = st.columns(2)
